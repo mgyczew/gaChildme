@@ -1,0 +1,72 @@
+.tic-tac-toe {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 30px 20px;
+    text-align: center;
+}
+
+.tic-tac-toe h1 {
+    margin-bottom: 20px;
+    color: #333;
+}
+
+.status {
+    min-height: 30px;
+    margin-bottom: 20px;
+    color: #667eea;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 0 auto 25px;
+    padding: 10px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.cell {
+    aspect-ratio: 1;
+    border: 0;
+    border-radius: 10px;
+    background: white;
+    color: #333;
+    cursor: pointer;
+    font-size: clamp(42px, 12vw, 75px);
+    font-weight: bold;
+    line-height: 1;
+}
+
+.cell:disabled {
+    cursor: default;
+}
+
+.cell:not(:disabled):hover {
+    background: #f0f4ff;
+}
+
+.cell.circle {
+    color: #667eea;
+}
+
+.cell.cross {
+    color: #e05a7a;
+}
+
+.reset-button {
+    border: 0;
+    border-radius: 8px;
+    padding: 14px 30px;
+    background: #667eea;
+    color: white;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.reset-button:hover {
+    background: #5369d6;
+}

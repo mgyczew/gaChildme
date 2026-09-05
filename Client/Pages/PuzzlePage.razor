@@ -1,0 +1,130 @@
+﻿@page "/puzzle"
+@using gaChildme.Client.Pages.Components
+@using gaChildme.Client.Models
+@inject HttpClient Http
+
+<PageTitle>Puzzle Game</PageTitle>
+
+<div class="puzzle-page-container">
+    <h1>🧩 Puzzle Game</h1>
+
+    @if (gameState == GameState.Phase1_SelectImage)
+    {
+        <Phase1SelectImage AvailableImages="@availableImages" SelectedImage="@selectedImage" OnSelectImage="OnSelectImage" OnNext="GoToPhase2" />
+    }
+    else if (gameState == GameState.Phase2_SelectSize)
+    {
+        <Phase2SelectSize Sizes="@puzzleSizes" SelectedSize="@selectedSize" SelectedImage="@selectedImage" OnSelectSize="OnSelectSize" OnBack="GoToPhase1" OnNext="GoToPhase3" />
+    }   
+    else if (gameState == GameState.Phase3_Playing && selectedSize != null && !string.IsNullOrEmpty(selectedImage))
+    {
+        <Phase3Game ImagePath="@selectedImage" Size="@selectedSize" OnBack="OnBackToSelection" OnCompleted="OnGameCompleted" />
+    }
+    else if (gameState == GameState.Completed)
+    {
+        <div class="congratulations-container">
+            <div class="congratulations-content">
+                <h2>🎉 Gratulacje! 🎉</h2>
+                <p>Świetnie się spisałeś!</p>
+                <p>Ułożyłeś puzzle w <strong>@completionTime.ToString("F2")</strong> sekund!</p>
+                <p class="puzzle-info">@GetImageName(selectedImage) (@selectedSize?.Rows × @selectedSize?.Columns)</p>
+                <div class="button-group">
+                    <button class="btn btn-primary btn-lg" @onclick="()=> StartOver()">Graj ponownie</button>
+                    <button class="btn btn-secondary btn-lg" @onclick="()=> gameState = GameState.Phase2_SelectSize">Zmień rozmiar</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    enum GameState { Phase1_SelectImage, Phase2_SelectSize, Phase3_Playing, Completed }
+
+    private GameState gameState = GameState.Phase1_SelectImage;
+    private string? selectedImage;
+    private PuzzleSize? selectedSize;
+    private double completionTime;
+
+    private readonly List<ImageOption> availableImages = new()
+    {
+        new ImageOption { Name = "Tło", Path = "background.png" },
+        new ImageOption { Name = "Kot", Path = "Animal/Image/cat.png" },
+        new ImageOption { Name = "Pies", Path = "Animal/Image/dog.png" },
+        new ImageOption { Name = "Królik", Path = "Animal/Image/rabbit.png" },
+        new ImageOption { Name = "Ptak", Path = "Animal/Image/bird.png" },
+        new ImageOption { Name = "Wielbłąd", Path = "Animal/Image/camel.png" },
+    };
+
+    private readonly List<PuzzleSize> puzzleSizes = new()
+    {
+        new PuzzleSize { Rows = 2, Columns = 2, Difficulty = "Łatwy" },
+        new PuzzleSize { Rows = 2, Columns = 3, Difficulty = "Łatwy" },
+        new PuzzleSize { Rows = 3, Columns = 3, Difficulty = "Średni" },
+        new PuzzleSize { Rows = 3, Columns = 4, Difficulty = "Średni" },
+        new PuzzleSize { Rows = 3, Columns = 5, Difficulty = "Łatwy" },
+        new PuzzleSize { Rows = 4, Columns = 5, Difficulty = "Średni" },
+        new PuzzleSize { Rows = 4, Columns = 6, Difficulty = "Średni+" },
+        new PuzzleSize { Rows = 5, Columns = 5, Difficulty = "Trudny" },
+        new PuzzleSize { Rows = 5, Columns = 6, Difficulty = "Trudny+" },
+        new PuzzleSize { Rows = 5, Columns = 7, Difficulty = "Bardzo Trudny" },
+        new PuzzleSize { Rows = 6, Columns = 6, Difficulty = "Bardzo Trudny" },
+        new PuzzleSize { Rows = 7, Columns = 7, Difficulty = "Ekstra Trudny" },
+        new PuzzleSize { Rows = 8, Columns = 8, Difficulty = "Ekstra Trudny" },
+        new PuzzleSize { Rows = 10, Columns = 10, Difficulty = "Ekstremie Trudny" },
+    };
+
+    private void OnSelectImage(string path)
+    {
+        selectedImage = path;
+    }
+
+    private void GoToPhase2()
+    {
+        if (string.IsNullOrEmpty(selectedImage)) return;
+        selectedSize = puzzleSizes.First(size => size.Rows == 4 && size.Columns == 5);
+        gameState = GameState.Phase2_SelectSize;
+    }
+
+    private void GoToPhase1()
+    {
+        gameState = GameState.Phase1_SelectImage;
+        selectedSize = null;
+    }
+
+    private void OnSelectSize(PuzzleSize size)
+    {
+        selectedSize = size;
+    }
+
+    private async Task GoToPhase3()
+    {
+        if (string.IsNullOrEmpty(selectedImage) || selectedSize == null) return;
+        gameState = GameState.Phase3_Playing;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnBackToSelection()
+    {
+        gameState = GameState.Phase1_SelectImage;
+        selectedSize = null;
+        selectedImage = null;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnGameCompleted(double time)
+    {
+        completionTime = time;
+        gameState = GameState.Completed;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void StartOver()
+    {
+        selectedImage = null;
+        selectedSize = null;
+        completionTime = 0;
+        gameState = GameState.Phase1_SelectImage;
+    }
+
+    private string GetImageName(string? path) => string.IsNullOrEmpty(path) ? string.Empty : System.IO.Path.GetFileName(path);
+}

@@ -1,0 +1,56 @@
+@using gaChildme.Client.Models
+
+<div class="phase-screen">
+    <div class="phase-card">
+        <div class="phase-header">
+            <h2>Faza 2: Wybierz Rozmiar Puzzle</h2>
+            <p class="phase-description">Wybrany obraz: <strong>@ImageName</strong></p>
+        </div>
+
+        <div class="size-selector">
+            @foreach (var size in Sizes)
+            {
+                var isSelected = SelectedSize == size;
+                var cls = isSelected ? "size-button selected" : "size-button";
+                var total = size.Rows * size.Columns;
+                <button class="@cls" @onclick="() => Select(size)">
+                    <div class="size-content">
+                        <div class="grid-preview" style="grid-template-columns: repeat(@size.Columns, 1fr);">
+                            @for (int i = 0; i < total; i++)
+                            {
+                                <div class="grid-cell"></div>
+                            }
+                        </div>
+                        <p class="size-dimensions">@size.Rows × @size.Columns</p>
+                        <p class="size-total">(@total kawa³ków)</p>
+                    </div>
+                    @if (isSelected)
+                    {
+                        <div class="selected-badge">? Wybrano</div>
+                    }
+                </button>
+            }
+        </div>
+
+        <div class="button-group-phase">
+            <button class="btn btn-secondary btn-lg" @onclick="OnBack">? Wróæ</button>
+            <button class="btn btn-primary btn-lg" @onclick="Start" disabled="@(SelectedSize==null)">Zacznij Grê ?</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<PuzzleSize> Sizes { get; set; } = new();
+    [Parameter] public string ImageName { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnBackClicked { get; set; }
+    [Parameter] public EventCallback<PuzzleSize> OnSizeSelected { get; set; }
+
+    private PuzzleSize? SelectedSize { get; set; }
+
+    private void Select(PuzzleSize s) => SelectedSize = s;
+    private async Task OnBack() => await OnBackClicked.InvokeAsync();
+    private async Task Start()
+    {
+        if (SelectedSize != null) await OnSizeSelected.InvokeAsync(SelectedSize);
+    }
+}

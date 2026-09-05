@@ -1,0 +1,309 @@
+@using gaChildme.Client.Models
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="puzzle-game-wrapper">
+    @if (!string.IsNullOrEmpty(loadError))
+    {
+        <div class="loading-error" role="alert">
+            Nie uda³o siê uruchomiæ puzzli: @loadError
+            <button class="btn btn-secondary" @onclick="LoadImageAndSplit">Spróbuj ponownie</button>
+        </div>
+    }
+    else if (puzzlePieces == null || puzzlePieces.Count == 0)
+    {
+        <div class="loading">£adowanie gry...</div>
+    }
+    else
+    {
+        <div class="puzzle-header">
+            <h2>?? Rozgrywka</h2>
+            <div class="game-stats">
+                <span class="stat-item">?? Czas: <strong>@Math.Floor((DateTime.Now - startTime).TotalSeconds)s</strong></span>
+                <span class="stat-item">?? Postêp: <strong>@placedCount / @totalPieces</strong></span>
+            </div>
+        </div>
+
+        <div class="puzzle-game-container">
+            <!-- LEWO: GRID DO WRZUCANIA KAWA£KÓW -->
+            <div class="puzzle-section">
+                <div class="puzzle-card">
+                    <div class="puzzle-card-header">
+                        <h3>?? Plansza Gry</h3>
+                        <span class="puzzle-size-badge">@Size.Rows × @Size.Columns</span>
+                    </div>
+                    <div class="puzzle-board-wrapper">
+                         <div class="puzzle-grid" style="grid-template-columns: repeat(@Size.Columns, 1fr); grid-template-rows: repeat(@Size.Rows, 1fr); --piece-aspect-ratio: @(imageAspectRatio * Size.Rows / Size.Columns); --image-aspect-ratio: @imageAspectRatio;">
+                            @for (int i = 0; i < Size.Rows * Size.Columns; i++)
+                            {
+                                var piece = grid[i];
+                                var gridIndex = i;
+                                <div class="puzzle-slot @(selectedPiece != null ? "can-place" : string.Empty)"
+                                     @onclick="() => OnSlotClicked(gridIndex)"
+                                     @ondragover:preventDefault="true"
+                                     @ondrop="() => OnDropPiece(gridIndex)">
+                                    @if (piece != null)
+                                    {
+                                         <img src="@piece.ImageData" alt="piece-@piece.Id" class="slot-image"
+                                              draggable="true"
+                                              @ondragstart="() => OnGridDragStart(piece, gridIndex)" />
+                                    }
+                                    else
+                                    {
+                                        <span class="slot-hint">+</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PRAWO: LISTA DOSTÊPNYCH KAWA£KÓW -->
+            <div class="control-section">
+                <div class="puzzle-pieces-container">
+                    <h3>?? Dostêpne Kawa³ki (@availablePieces.Count)</h3>
+                    <div class="available-pieces">
+                        @foreach (var piece in availablePieces)
+                        {
+                             <div class="available-piece @(selectedPiece?.Id == piece.Id ? "selected" : string.Empty)"
+                                  style="--piece-aspect-ratio: @(imageAspectRatio * Size.Rows / Size.Columns);"
+                                 draggable="true"
+                                 title="Kliknij, aby wybraæ kawa³ek"
+                                 @onclick="() => SelectPiece(piece)"
+                                 @ondragstart="() => OnDragStart(piece)">
+                                <img src="@piece.ImageData" alt="piece-@piece.Id" />
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="control-buttons">
+                     <button class="btn btn-secondary btn-block" @onclick="UndoLastMove" disabled="@(moveHistory.Count == 0)">Cofnij ostatni ruch</button>
+                    <button class="btn btn-secondary btn-block" @onclick="OnBackClicked">?? Nowa gra</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ImagePath { get; set; } = string.Empty;
+    [Parameter] public PuzzleSize Size { get; set; } = new PuzzleSize();
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback<double> OnCompleted { get; set; }
+
+    private List<PuzzlePiece>? puzzlePieces;  // Wszystkie kawa³ki w oryginalnej kolejnoœci
+    private List<PuzzlePiece?> grid = new(); // Grid do wrzucania (pozycje)
+    private List<PuzzlePiece> availablePieces = new(); // Kawa³ki dostêpne do wrzucenia
+    private PuzzlePiece? draggedPiece; // Aktualnie przeci¹gany kawa³ek
+    private int draggedGridIndex = -1;
+    private PuzzlePiece? selectedPiece;
+    private string? loadError;
+    private readonly Stack<List<PuzzlePiece?>> moveHistory = new();
+    private double imageAspectRatio = 1;
+
+    private DateTime startTime;
+    private int totalPieces => puzzlePieces?.Count ?? 0;
+    private int placedCount => grid.Count(p => p != null);
+    private System.Timers.Timer? uiTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadImageAndSplit();
+    }
+
+    private async Task LoadImageAndSplit()
+    {
+        try
+        {
+            loadError = null;
+            puzzlePieces = null;
+            Console.WriteLine($"LoadImageAndSplit: Loading {ImagePath}, Size: {Size.Rows}x{Size.Columns}");
+
+            var piecesData = await JS.InvokeAsync<string[]>(
+                "splitImage", 
+                ImagePath,
+                Size.Rows, 
+                Size.Columns
+            );
+
+            imageAspectRatio = await JS.InvokeAsync<double>("getImageAspectRatio", ImagePath);
+
+            // Tworzymy modele kawa³ków
+            puzzlePieces = piecesData
+                .Select((imageData, index) => new PuzzlePiece 
+                { 
+                    Id = index, 
+                    ImageData = imageData, 
+                    CorrectIndex = index 
+                })
+                .ToList();
+
+            // Inicjalizujemy grid - wszystkie pozycje puste
+            grid = new List<PuzzlePiece?>(Enumerable.Repeat<PuzzlePiece?>(null, puzzlePieces.Count));
+
+            // Mieszamy kawa³ki do dostêpnych
+            availablePieces = new List<PuzzlePiece>(puzzlePieces.OrderBy(x => Guid.NewGuid()).ToList());
+            selectedPiece = null;
+            draggedPiece = null;
+            draggedGridIndex = -1;
+            moveHistory.Clear();
+
+            startTime = DateTime.Now;
+            StartTimer();
+
+            Console.WriteLine($"Game initialized: {totalPieces} pieces loaded");
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+            Console.WriteLine($"ERROR LoadImageAndSplit: {ex.Message}");
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void StartTimer()
+    {
+        uiTimer?.Stop();
+        uiTimer?.Dispose();
+        uiTimer = new System.Timers.Timer(1000);
+        uiTimer.Elapsed += async (s, e) => await InvokeAsync(StateHasChanged);
+        uiTimer.AutoReset = true;
+        uiTimer.Start();
+    }
+
+    private void OnDragStart(PuzzlePiece piece)
+    {
+        draggedPiece = piece;
+        draggedGridIndex = -1;
+        selectedPiece = piece;
+        Console.WriteLine($"Drag start: piece {piece.Id}");
+    }
+
+    private void OnGridDragStart(PuzzlePiece piece, int gridIndex)
+    {
+        draggedPiece = piece;
+        draggedGridIndex = gridIndex;
+        selectedPiece = piece;
+        Console.WriteLine($"Grid drag start: piece {piece.Id} from position {gridIndex}");
+    }
+
+    private void SelectPiece(PuzzlePiece piece)
+    {
+        selectedPiece = selectedPiece?.Id == piece.Id ? null : piece;
+        draggedPiece = null;
+        draggedGridIndex = -1;
+    }
+
+    private async Task OnSlotClicked(int gridIndex)
+    {
+        if (selectedPiece != null)
+        {
+            draggedPiece = selectedPiece;
+            await OnDropPiece(gridIndex);
+        }
+    }
+
+    private async Task OnDropPiece(int gridIndex)
+    {
+        if (draggedPiece == null)
+        {
+            Console.WriteLine("Drop failed: no piece being dragged");
+            return;
+        }
+
+        Console.WriteLine($"Dropping piece {draggedPiece.Id} at grid position {gridIndex}");
+
+        moveHistory.Push(new List<PuzzlePiece?>(grid));
+
+        if (draggedGridIndex >= 0)
+        {
+            if (draggedGridIndex != gridIndex)
+            {
+                // Przeci¹ganie elementu na planszy zamienia go miejscem z elementem docelowym.
+                (grid[draggedGridIndex], grid[gridIndex]) = (grid[gridIndex], grid[draggedGridIndex]);
+            }
+        }
+        else
+        {
+            // Jeœli w tej pozycji ju¿ jest coœ, zwracamy ten element do dostêpnych.
+            if (grid[gridIndex] != null)
+            {
+                availablePieces.Add(grid[gridIndex]!);
+            }
+
+            grid[gridIndex] = draggedPiece;
+            availablePieces.Remove(draggedPiece);
+        }
+
+        draggedPiece = null;
+        draggedGridIndex = -1;
+        selectedPiece = null;
+
+        Console.WriteLine($"Placed: {placedCount}/{totalPieces}");
+        await InvokeAsync(StateHasChanged);
+        CheckCompletion();
+    }
+
+    private async Task UndoLastMove()
+    {
+        if (moveHistory.Count == 0)
+        {
+            return;
+        }
+
+        grid = moveHistory.Pop();
+        draggedPiece = null;
+        draggedGridIndex = -1;
+        selectedPiece = null;
+
+        var placedIds = grid.Where(piece => piece != null).Select(piece => piece!.Id).ToHashSet();
+        availablePieces = puzzlePieces!
+            .Where(piece => !placedIds.Contains(piece.Id))
+            .ToList();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CheckCompletion()
+    {
+        // Sprawdzamy czy wszystkie pozycje s¹ wype³nione
+        if (grid.Any(p => p == null))
+        {
+            Console.WriteLine($"Incomplete: {grid.Count(p => p == null)} empty slots");
+            return;
+        }
+
+        // Sprawdzamy czy wszystkie kawa³ki s¹ we w³aœciwych pozycjach
+        for (int i = 0; i < grid.Count; i++)
+        {
+            if (grid[i]?.Id != i)
+            {
+                Console.WriteLine($"Wrong position: grid[{i}].Id = {grid[i]?.Id}, expected {i}");
+                return;
+            }
+        }
+
+        // GWAR UKOÑCZONA!
+        Console.WriteLine("?? GAME COMPLETED!");
+        var completionTime = (DateTime.Now - startTime).TotalSeconds;
+        uiTimer?.Stop();
+        uiTimer?.Dispose();
+        _ = OnCompleted.InvokeAsync(completionTime);
+    }
+
+    private async Task OnBackClicked()
+    {
+        uiTimer?.Stop();
+        uiTimer?.Dispose();
+        await OnBack.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        uiTimer?.Stop();
+        uiTimer?.Dispose();
+    }
+}

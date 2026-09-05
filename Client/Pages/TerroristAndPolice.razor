@@ -1,0 +1,245 @@
+@page "/gra-w-wirusa"
+
+<PageTitle>Terroryœci i policjanci</PageTitle>
+
+<div class="terrorist-game">
+    <header class="terrorist-header">
+        <div>
+            <h1>?? Terroryœci i policjanci</h1>
+            <p>Wylosuj tajn¹ rolê i pomó¿ policji odkryæ terrorystów.</p>
+        </div>
+        @if (phase != GamePhase.Setup && phase != GamePhase.Reveal)
+        {
+            <span class="terrorist-round">Runda @round/@MaxRounds</span>
+        }
+    </header>
+
+    @if (phase == GamePhase.Setup)
+    {
+        <section class="terrorist-card terrorist-setup">
+            <h2>Rozpocznij grê</h2>
+            <p>To jest gra jednoosobowa. Pozostali uczestnicy zostan¹ dodani automatycznie.</p>
+            <input class="terrorist-name-input" @bind="playerName" placeholder="Twoje imiê" maxlength="20" />
+            <button class="terrorist-primary" @onclick="StartGame">Losuj moj¹ rolê</button>
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <p class="terrorist-error">@errorMessage</p>
+            }
+            <details class="terrorist-rules">
+                <summary>Zasady gry</summary>
+                <ul>
+                    <li>W grze bierze udzia³ 12 uczestników, a ka¿dy otrzymuje losowy numer od 1 do 12.</li>
+                    <li>Role s¹ tajne: 2 terrorystów, 5 obywateli, 2 naukowców, dziennikarz, oficer i dodatkowy obywatel z antidotum.</li>
+                    <li>Terroryœci zara¿aj¹ s¹siaduj¹ce numery. Numer 1 s¹siaduje równie¿ z numerem 12.</li>
+                    <li>W ka¿dej rundzie wybierasz podejrzanego do g³osowania.</li>
+                    <li>Policja wygrywa po wyeliminowaniu obu terrorystów. Terroryœci wygrywaj¹ po zaka¿eniu 6 osób lub po 6 rundach.</li>
+                </ul>
+            </details>
+        </section>
+    }
+    else if (phase == GamePhase.Reveal)
+    {
+        <section class="terrorist-card terrorist-reveal">
+            <p class="terrorist-phase">Losowanie zakoñczone</p>
+            <h2>Twoja tajna rola</h2>
+            @if (!roleVisible)
+            {
+                <div class="terrorist-hidden-role"><span>?</span><strong>Karta zakryta</strong><small>Naciœnij, aby poznaæ swoj¹ rolê</small></div>
+                <button class="terrorist-primary" @onclick="ShowRole">Poka¿ moj¹ rolê</button>
+            }
+            else
+            {
+                <div class="terrorist-role-card @GetRoleClass(HumanPlayer.Role)">
+                    <span>@GetRoleIcon(HumanPlayer.Role)</span>
+                    <strong>@GetRoleName(HumanPlayer.Role)</strong>
+                    <p>@GetRoleDescription(HumanPlayer.Role)</p>
+                </div>
+                <button class="terrorist-primary" @onclick="BeginPlaying">Rozpocznij pierwsz¹ rundê</button>
+            }
+        </section>
+    }
+    else if (phase == GamePhase.Playing)
+    {
+        <section class="terrorist-card terrorist-playing">
+            <div class="terrorist-objective"><strong>Runda @round</strong><span>Wybierz podejrzanego. Po g³osowaniu zobaczysz wynik rundy.</span></div>
+            <div class="terrorist-board">
+                @foreach (var player in players.OrderBy(player => player.Number))
+                {
+                    <button class="terrorist-player @GetPlayerStateClass(player)" @onclick="() => Vote(player)" disabled="@(!player.Alive)">
+                        <span class="terrorist-number">@player.Number</span>
+                        <strong>@player.Name</strong>
+                        <small>@GetStatusText(player)</small>
+                    </button>
+                }
+            </div>
+            <p class="terrorist-summary">Zara¿eni: @InfectedCount/6 · Aktywni: @AliveCount · S¹siedzi: numery obok siebie</p>
+        </section>
+    }
+    else if (phase == GamePhase.RoundResult)
+    {
+        <section class="terrorist-card terrorist-round-result">
+            <p class="terrorist-phase">Wynik rundy @round</p>
+            <h2>@roundTitle</h2>
+            <p>@roundMessage</p>
+            <div class="terrorist-result-stats"><span>Zara¿eni: <strong>@InfectedCount</strong></span><span>Aktywni: <strong>@AliveCount</strong></span></div>
+            <button class="terrorist-primary" @onclick="ContinueRound">@(round >= MaxRounds ? "Zobacz wynik gry" : "Rozpocznij nastêpn¹ rundê")</button>
+        </section>
+    }
+    else
+    {
+        <section class="terrorist-card terrorist-result">
+            <div class="terrorist-result-icon">@(terroristsWon ? "??" : "???")</div>
+            <h2>@resultTitle</h2>
+            <p>@resultMessage</p>
+            <div class="terrorist-final-list">
+                @foreach (var player in players.OrderBy(player => player.Number))
+                {
+                    <div><span>#@player.Number @player.Name</span><strong class="@GetRoleClass(player.Role)">@GetRoleName(player.Role)</strong></div>
+                }
+            </div>
+            <button class="terrorist-primary" @onclick="ResetGame">Zagraj ponownie</button>
+        </section>
+    }
+</div>
+
+@code {
+    private enum GamePhase { Setup, Reveal, Playing, RoundResult, Finished }
+    private enum Role { Terrorist, Citizen, Scientist, Journalist, Officer }
+
+    private sealed class Player
+    {
+        public string Name { get; set; } = string.Empty;
+        public int Number { get; set; }
+        public Role Role { get; set; }
+        public bool HasAntidote { get; set; }
+        public bool Infected { get; set; }
+        public bool Alive { get; set; } = true;
+    }
+
+    private const int PlayerCount = 12;
+    private const int MaxRounds = 6;
+    private const int TerroristWinInfectedCount = 6;
+    private string playerName = string.Empty;
+    private List<Player> players = new();
+    private GamePhase phase = GamePhase.Setup;
+    private bool roleVisible;
+    private int round = 1;
+    private string? errorMessage;
+    private string roundTitle = string.Empty;
+    private string roundMessage = string.Empty;
+    private string resultTitle = string.Empty;
+    private string resultMessage = string.Empty;
+    private bool terroristsWon;
+
+    private Player HumanPlayer => players.First(player => player.Name == playerName.Trim());
+    private int AliveCount => players.Count(player => player.Alive);
+    private int InfectedCount => players.Count(player => player.Infected);
+
+    private void StartGame()
+    {
+        if (string.IsNullOrWhiteSpace(playerName))
+        {
+            errorMessage = "Wpisz swoje imiê.";
+            return;
+        }
+
+        var roles = new List<Role>
+        {
+            Role.Terrorist, Role.Terrorist,
+            Role.Citizen, Role.Citizen, Role.Citizen, Role.Citizen, Role.Citizen, Role.Citizen,
+            Role.Scientist, Role.Scientist, Role.Journalist, Role.Officer
+        }.OrderBy(_ => Guid.NewGuid()).ToList();
+        var numbers = Enumerable.Range(1, PlayerCount).OrderBy(_ => Guid.NewGuid()).ToList();
+        var antidoteIndex = roles.FindIndex(role => role == Role.Citizen);
+        var names = new[] { playerName.Trim(), "Podejrzany 2", "Podejrzany 3", "Podejrzany 4", "Podejrzany 5", "Podejrzany 6", "Podejrzany 7", "Podejrzany 8", "Podejrzany 9", "Podejrzany 10", "Podejrzany 11", "Podejrzany 12" };
+
+        players = names.Select((name, index) => new Player { Name = name, Number = numbers[index], Role = roles[index], HasAntidote = index == antidoteIndex }).ToList();
+        errorMessage = null;
+        roleVisible = false;
+        round = 1;
+        phase = GamePhase.Reveal;
+    }
+
+    private void ShowRole() => roleVisible = true;
+    private void BeginPlaying() => phase = GamePhase.Playing;
+
+    private void Vote(Player player)
+    {
+        if (!player.Alive || phase != GamePhase.Playing)
+        {
+            return;
+        }
+
+        player.Alive = false;
+        if (player.Role == Role.Terrorist)
+        {
+            roundTitle = "Terrorysta zosta³ wyeliminowany";
+            roundMessage = $"Gracz {player.Name} by³ terroryst¹.";
+        }
+        else
+        {
+            var candidate = players.FirstOrDefault(item => item.Alive && item.Role == Role.Citizen && AreNeighbors(item.Number, player.Number));
+            if (candidate != null && players.Any(item => item.Alive && item.Role == Role.Terrorist))
+            {
+                candidate.Infected = true;
+                roundTitle = "Z³y wybór — terroryœci zadzia³ali";
+                roundMessage = $"Zara¿ony zosta³ s¹siad o numerze {candidate.Number}.";
+            }
+            else
+            {
+                roundTitle = "Podejrzany wyeliminowany";
+                roundMessage = "Nie uda³o siê potwierdziæ to¿samoœci terrorysty.";
+            }
+        }
+
+        phase = GamePhase.RoundResult;
+    }
+
+    private void ContinueRound()
+    {
+        if (players.Count(player => player.Role == Role.Terrorist && player.Alive) == 0)
+        {
+            FinishGame(false, "Policja zwyciê¿a!", "Obaj terroryœci zostali wyeliminowani.");
+        }
+        else if (InfectedCount >= TerroristWinInfectedCount || round >= MaxRounds)
+        {
+            FinishGame(true, "Terroryœci zwyciê¿aj¹!", "Terroryœci przejêli kontrolê nad sytuacj¹.");
+        }
+        else
+        {
+            round++;
+            phase = GamePhase.Playing;
+        }
+    }
+
+    private bool AreNeighbors(int firstNumber, int secondNumber)
+    {
+        var distance = Math.Abs(firstNumber - secondNumber);
+        return distance == 1 || distance == PlayerCount - 1;
+    }
+
+    private void FinishGame(bool terroristsWin, string title, string message)
+    {
+        terroristsWon = terroristsWin;
+        resultTitle = title;
+        resultMessage = message;
+        phase = GamePhase.Finished;
+    }
+
+    private void ResetGame()
+    {
+        players.Clear();
+        playerName = string.Empty;
+        roleVisible = false;
+        round = 1;
+        errorMessage = null;
+        phase = GamePhase.Setup;
+    }
+
+    private static string GetRoleName(Role role) => role switch { Role.Terrorist => "Terrorysta", Role.Scientist => "Naukowiec", Role.Journalist => "Dziennikarz", Role.Officer => "Oficer", _ => "Zwyk³y obywatel" };
+    private static string GetRoleIcon(Role role) => role switch { Role.Terrorist => "??", Role.Scientist => "??", Role.Journalist => "??", Role.Officer => "??", _ => "??" };
+    private static string GetRoleDescription(Role role) => role switch { Role.Terrorist => "Dzia³aj w ukryciu i zara¿aj s¹siadów.", Role.Scientist => "Szukaj osoby posiadaj¹cej antidotum.", Role.Journalist => "Zdobywaj informacje o rolach innych osób.", Role.Officer => "Pomó¿ policji wyeliminowaæ terrorystów.", _ => "Przetrwaj i pomó¿ policji." };
+    private static string GetRoleClass(Role role) => role switch { Role.Terrorist => "role-terrorist", Role.Scientist => "role-scientist", Role.Journalist => "role-journalist", Role.Officer => "role-officer", _ => "role-citizen" };
+    private static string GetPlayerStateClass(Player player) => !player.Alive ? "player-eliminated" : player.Infected ? "player-infected" : "player-alive";
+    private static string GetStatusText(Player player) => !player.Alive ? "Wyeliminowany" : player.Infected ? "Zara¿ony" : "Aktywny";
+}

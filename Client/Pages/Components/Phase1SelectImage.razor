@@ -1,0 +1,49 @@
+@using gaChildme.Client.Pages
+
+@using gaChildme.Client.Models
+
+<div class="phase-screen">
+    <div class="phase-card">
+        <div class="phase-header">
+            <h2>Faza 1: Wybierz Obrazek</h2>
+            <p class="phase-description">Wybierz obraz do uk³adania puzzli</p>
+        </div>
+
+        <div class="image-grid">
+            @foreach (var image in AvailableImages)
+            {
+                var isSelected = SelectedImage == image.Path;
+                var cls = isSelected ? "image-card selected" : "image-card";
+                <button class="@cls" @onclick="() => Select(image.Path)">
+                    <div class="image-card-content">
+                        <img src="@image.Path" alt="@image.Name" />
+                        <p class="image-name">@image.Name</p>
+                    </div>
+                    @if (isSelected)
+                    {
+                        <div class="selected-badge">?</div>
+                    }
+                </button>
+            }
+        </div>
+
+        <button class="btn btn-primary btn-lg next-button" @onclick="Next" disabled="@(SelectedImage==null)">Dalej ?</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<ImageOption> AvailableImages { get; set; } = new();
+    [Parameter] public string? SelectedImage { get; set; }
+    [Parameter] public EventCallback<string> OnSelectImage { get; set; }
+    [Parameter] public EventCallback OnNext { get; set; }
+
+    private async Task Select(string path)
+    {
+        await OnSelectImage.InvokeAsync(path);
+    }
+
+    private async Task Next()
+    {
+        await OnNext.InvokeAsync();
+    }
+}

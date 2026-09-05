@@ -1,0 +1,213 @@
+﻿@inject IJSRuntime JS
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@page "/clickAnimalGame"
+
+<PageTitle>Gra klikaj zwierzęta</PageTitle>
+
+<h1>Gra Klikaj Zwierzęta</h1>
+
+<p role="status">Liczba kliknięć: @clickCount / Liczba pojawień: @spawnCount</p>
+
+@if (isGameFinished)
+{
+    <p>Koniec gry! Kliknąłeś wszystkie zwierzęta w @gameDuration sekund!</p>
+
+    @if (collectedAnimals.Any())
+    {
+        <div style="position: relative; margin: 20px 0; display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 10px;">
+            @foreach (var animal in collectedAnimals)
+            {
+                <img src="@animal" alt="Zdobyte zwierzę" style="width: 50px; height: 50px; border-radius: 50%; object-fit: cover;">
+            }
+        </div>
+    }
+    <br />
+    <button class="btn btn-primary" @onclick="RestartGame">Zrestartuj grę</button>
+}
+else
+{
+    <div id="game-container" style="position: relative; width: 65vw; height: 65vh; background: url('background.png') no-repeat center center; background-size: cover; overflow: hidden;">
+        @if (currentButton != null)
+        {
+            <button class="btn btn-secondary" style="position: absolute; top: @currentButton.Top%; left: @currentButton.Left%; padding: 0; border: none; background: none; outline:none" @onclick:stopPropagation="true" @onclick="ButtonClicked">
+                <img src="@currentButton.Image" alt="Zwierzę" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover;">
+            </button>
+        }
+
+        @if (collectedAnimals.Any())
+        {
+            <div style="position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(255, 255, 255, 0.8); padding: 10px; display: flex; gap: 10px; justify-content: flex-start; align-items: center; flex-wrap: wrap;">
+                @foreach (var animal in collectedAnimals)
+                {
+                    <img src="@animal" alt="Zdobyte zwierzę" style="width: 50px; height: 50px; border-radius: 50%; object-fit: cover;">
+                }
+            </div>
+        }
+    </div>
+    <br />
+    <button class="btn btn-success" @onclick="StartGame">Rozpoczni grę</button>
+}
+
+
+
+
+@code {
+    private ButtonData? currentButton;
+    private int clickCount = 0;
+    private int spawnCount = 0;
+    private readonly Random random = new();
+    private bool isGameFinished = false;
+    private DateTime startTime;
+    private double gameDuration;
+    private CancellationTokenSource? gameLoopCancellation;
+    private const string AnimalImagesPath = "Animal/Image/";
+    private const string AnimalSoundsPath = "Animal/Sounds/";
+    private readonly List<string> animalImages = new() { "cat.png", "dog.png", "rabbit.png", "bird.png", "camel.png" };
+    private string GetImagePath(string imageName) => $"{AnimalImagesPath}{imageName}";
+    private List<string> collectedAnimals = new();
+    private bool isFullScreen = false;
+
+    public async ValueTask DisposeAsync()
+    {
+        gameLoopCancellation?.Cancel();
+        gameLoopCancellation?.Dispose();
+        await Task.CompletedTask;
+    }
+
+    private async Task StartGame()
+    {
+        isFullScreen = false;
+        await ToggleFullScreen();
+        startTime = DateTime.Now;
+        clickCount = 0;
+        spawnCount = 0;
+        isGameFinished = false;
+        collectedAnimals.Clear();
+        SpawnButton();
+        await StartButtonAutoMove();
+    }
+
+    private async Task EndGame()
+    {
+        isGameFinished = true;
+        gameLoopCancellation?.Cancel();
+        gameDuration = (DateTime.Now - startTime).TotalSeconds;
+        currentButton = null;
+        await ToggleFullScreen();
+        StateHasChanged();
+    }
+
+    private async Task StartButtonAutoMove()
+    {
+        gameLoopCancellation = new CancellationTokenSource();
+        var token = gameLoopCancellation.Token;
+
+        try
+        {
+            while (!isGameFinished && !token.IsCancellationRequested)
+            {
+                await Task.Delay(2000, token);
+                if (!isGameFinished && !token.IsCancellationRequested)
+                {
+                    SpawnButton();
+                }
+                if (spawnCount > 10)
+                {
+                    await EndGame();
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Game loop was cancelled - this is normal
+        }
+    }
+
+    private async Task ButtonClicked()
+    {
+        if (currentButton != null)
+        {
+            collectedAnimals.Add(currentButton.Image);
+            clickCount++;
+
+            var animalName = currentButton.Image.Split('/')[2].Split('.')[0];
+            await PlayAnimalSound(animalName);
+
+            if (clickCount == animalImages.Count)
+            {
+                await EndGame();
+            }
+            else
+            {
+                SpawnButton();
+            }
+        }
+    }
+
+    private void SpawnButton()
+    {
+        var top = random.Next(0, 85); // Ograniczenie, aby uniknąć wychodzenia poza ekran.
+        var left = random.Next(0, 85);
+        var image = GetImagePath(animalImages[clickCount % animalImages.Count]);
+        currentButton = new ButtonData { Top = top, Left = left, Image = image };
+        spawnCount++;
+        StateHasChanged();
+    }
+
+    private async Task RestartGame()
+    {
+        gameLoopCancellation?.Cancel();
+        isFullScreen = false;
+        await ToggleFullScreen();
+        startTime = DateTime.Now;
+        clickCount = 0;
+        spawnCount = 0;
+        isGameFinished = false;
+        collectedAnimals.Clear();
+        StateHasChanged();
+    }
+
+    private async Task ToggleFullScreen()
+    {
+        try
+        {
+            if (isFullScreen)
+            {
+                await JS.InvokeVoidAsync("exitFullScreen");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("enterFullScreen");
+            }
+            isFullScreen = !isFullScreen;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error toggling fullscreen: {ex.Message}");
+        }
+    }
+
+    private async Task PlayAnimalSound(string animalName)
+    {
+        var audioFilePath = $"{AnimalSoundsPath}{animalName}.mp3";
+
+        try
+        {
+            await JS.InvokeVoidAsync("playAudio", audioFilePath);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Błąd odtwarzania dźwięku: {ex.Message}");
+        }
+    }
+
+    private class ButtonData
+    {
+        public int Top { get; set; }
+        public int Left { get; set; }
+        public string Image { get; set; } = string.Empty;
+    }
+}

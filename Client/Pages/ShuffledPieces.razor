@@ -1,0 +1,23 @@
+@using gaChildme.Client.Models
+
+<div class="available-pieces">
+    @if (Pieces != null)
+    {
+        @foreach (var piece in Pieces)
+        {
+            <div class="available-piece" draggable="true" @ondragstart="() => StartDrag(piece)">
+                <img src="@piece.ImageData" alt="puzzle piece" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public List<PuzzlePiece>? Pieces { get; set; }
+    [Parameter] public EventCallback<PuzzlePiece> OnPieceDragStart { get; set; }
+
+    private async Task StartDrag(PuzzlePiece p)
+    {
+        if (p != null) await OnPieceDragStart.InvokeAsync(p);
+    }
+}

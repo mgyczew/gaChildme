@@ -1,0 +1,59 @@
+@using gaChildme.Client.Pages
+
+@using gaChildme.Client.Models
+
+<div class="phase-screen">
+    <div class="phase-card">
+        <div class="phase-header">
+            <h2>Faza 2: Wybierz Rozmiar Puzzle</h2>
+            <p class="phase-description">Wybrany obraz: <strong>@GetImageName(SelectedImage)</strong></p>
+        </div>
+
+        <div class="size-selector">
+            @foreach (var size in Sizes)
+            {
+                var isSelected = SelectedSize != null && SelectedSize.Rows == size.Rows && SelectedSize.Columns == size.Columns;
+                var cls = isSelected ? "size-button selected" : "size-button";
+                var total = size.Rows * size.Columns;
+                <button class="@cls" @onclick="() => Select(size)">
+                    <div class="size-content">
+                        <div class="size-visual">
+                            <div class="grid-preview" style="grid-template-columns: repeat(@size.Columns, 1fr);">
+                                @for (int i = 0; i < total; i++)
+                                {
+                                    <div class="grid-cell"></div>
+                                }
+                            </div>
+                        </div>
+                        <p class="size-dimensions">@size.Rows × @size.Columns</p>
+                        <p class="size-total">(@total kawa³ków)</p>
+                    </div>
+                    @if (isSelected)
+                    {
+                        <div class="selected-badge">?</div>
+                    }
+                </button>
+            }
+        </div>
+
+        <div class="button-group-phase">
+            <button class="btn btn-secondary btn-lg" @onclick="Back">? Wróæ</button>
+            <button class="btn btn-primary btn-lg" @onclick="Next" disabled="@(SelectedSize==null)">Zacznij Grê ?</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<PuzzleSize> Sizes { get; set; } = new();
+    [Parameter] public PuzzleSize? SelectedSize { get; set; }
+    [Parameter] public string? SelectedImage { get; set; }
+    [Parameter] public EventCallback<PuzzleSize> OnSelectSize { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnNext { get; set; }
+
+    private string GetImageName(string? path) => string.IsNullOrEmpty(path) ? string.Empty : System.IO.Path.GetFileName(path);
+
+    private async Task Select(PuzzleSize s) => await OnSelectSize.InvokeAsync(s);
+    private async Task Back() => await OnBack.InvokeAsync();
+    private async Task Next() => await OnNext.InvokeAsync();
+}

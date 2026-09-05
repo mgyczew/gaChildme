@@ -1,0 +1,403 @@
+@page "/infection-cards"
+
+@using System.Globalization
+
+<PageTitle>Infekcja - gra karciana</PageTitle>
+
+<div class="infection-game">
+    <div class="infection-header">
+        <div>
+            <h1>?? Infekcja</h1>
+            <p>Gra dedukcyjna dla 16 osób lub jedna osoba przeciwko botom</p>
+        </div>
+        <span class="round-badge">Runda @round/@MaxRounds</span>
+    </div>
+
+    @if (phase == GamePhase.Setup)
+    {
+        <section class="game-card setup-card">
+            <h2>Przygotuj grê</h2>
+            <p>Wpisz imiona graczy. Karty ról zostan¹ rozdane losowo.</p>
+
+            <details class="game-rules">
+                <summary>Zasady gry</summary>
+                <div class="rules-content">
+                    <h3>Cel gry</h3>
+                    <p>Architekt Zarazy dzia³a w ukryciu i chce zaraziæ jak najwiêcej osób, zanim zostanie zdemaskowany.</p>
+
+                    <h3>1. Punkt zero</h3>
+                    <p>Na pocz¹tku gry losowany jest Pacjent Zero. Tylko Architekt Zarazy zna jego to¿samoœæ.</p>
+
+                    <h3>2. Zaka¿enie</h3>
+                    <p>Podczas kontaktu, wspólnego zadania lub przebywania w tej samej strefie Architekt mo¿e potajemnie zaraziæ drugiego gracza.</p>
+
+                    <h3>3. Inkubacja</h3>
+                    <p>Zaka¿enie pozostaje ukryte przez 1–2 tury. Gracz mo¿e nie wiedzieæ, ¿e jest chory.</p>
+
+                    <h3>4. Objawy</h3>
+                    <p>Po inkubacji zainfekowany mo¿e zara¿aæ osoby, z którymi ma kontakt, chyba ¿e zostanie odizolowany. Mo¿e te¿ otrzymywaæ tajne zadania sabotuj¹ce dru¿ynê.</p>
+
+                    <h3>5. Wykrywanie</h3>
+                    <p>W ka¿dej rundzie gracze mog¹ zg³osiæ podejrzenie i poddaæ wybran¹ osobê testowi lub g³osowaniu. Zdemaskowany zainfekowany zostaje odizolowany, ale pozostaje w grze.</p>
+
+                    <h3>6. Zwyciêstwo</h3>
+                    <ul>
+                        <li><strong>Architekt Zarazy</strong> wygrywa, gdy infekcja obejmie co najmniej 60% graczy albo przetrwa do koñca limitu rund.</li>
+                        <li><strong>Ocalali</strong> wygrywaj¹, gdy zdemaskuj¹ Architekta lub wylecz¹ wszystkich zainfekowanych przed koñcem gry.</li>
+                    </ul>
+                </div>
+            </details>
+
+            <label class="solo-mode-option">
+                <input type="checkbox" @bind="soloMode" @bind:after="ToggleSoloMode" />
+                Gra jednoosobowa
+            </label>
+
+            <div class="player-inputs">
+                @for (var i = 0; i < playerNames.Count; i++)
+                {
+                    var playerIndex = i;
+                    <input class="player-input" @bind="playerNames[playerIndex]" placeholder="Gracz @(playerIndex + 1)" maxlength="20" />
+                }
+            </div>
+
+            @if (!soloMode)
+            {
+                <div class="setup-actions">
+                    <button class="secondary-button" @onclick="RemovePlayer" disabled="@(playerNames.Count <= 6)">? Usuñ gracza</button>
+                    <button class="secondary-button" @onclick="AddPlayer" disabled="@(playerNames.Count >= StandardPlayerCount)">+ Dodaj gracza</button>
+                </div>
+            }
+
+            <button class="primary-button" @onclick="StartGame">Rozdaj karty</button>
+            @if (!string.IsNullOrWhiteSpace(setupError))
+            {
+                <p class="error-message">@setupError</p>
+            }
+        </section>
+    }
+    else if (phase == GamePhase.Reveal)
+    {
+        <section class="game-card reveal-card">
+            <p class="phase-label">@(soloMode ? "Twoja karta" : $"Tajemnica karty {revealIndex + 1} z {players.Count}")</p>
+            <h2>@(soloMode ? "Twoja karta" : "Przeka¿ urz¹dzenie graczowi")</h2>
+            <p class="current-player">@players[revealIndex].Name</p>
+
+            @if (!roleVisible)
+            {
+                <div class="hidden-card">
+                    <span>?</span>
+                    <strong>Karta zakryta</strong>
+                    <small>Naciœnij, aby zobaczyæ swoj¹ rolê</small>
+                </div>
+                <button class="primary-button" @onclick="ShowRole">Poka¿ kartê</button>
+            }
+            else
+            {
+                <div class="role-card @GetRoleClass(players[revealIndex].Role)">
+                    <span class="role-icon">@GetRoleIcon(players[revealIndex].Role)</span>
+                    <strong>@GetRoleName(players[revealIndex].Role)</strong>
+                    <p>@GetRoleDescription(players[revealIndex].Role)</p>
+                </div>
+                <button class="primary-button" @onclick="NextReveal">Schowaj kartê i przeka¿ dalej</button>
+            }
+        </section>
+    }
+    else if (phase == GamePhase.Playing)
+    {
+        <section class="game-card playing-card">
+            <div class="objective">
+                <strong>Cel gry</strong>
+                <span>ZnajdŸ Nosiciela, zanim infekcja obejmie wiêkszoœæ lekarzy.</span>
+            </div>
+
+            <h2>G³osowanie — wybierz podejrzanego</h2>
+            <p class="status-message">Zdrowi lekarze: @HealthyCount · Zainfekowani: @InfectedCount · Aktywni: @ActiveCount</p>
+
+            <div class="player-statuses">
+                <h3>Status graczy po rundzie @round</h3>
+                <div class="player-circle">
+                    @for (var index = 0; index < players.Count; index++)
+                    {
+                        var currentPlayer = players[index];
+                        <button class="player-status @GetPlayerStatusClass(currentPlayer)"
+                                style="@GetPlayerPositionStyle(index)"
+                                @onclick="() => Vote(currentPlayer)"
+                                disabled="@(!currentPlayer.Active)"
+                                title="@(currentPlayer.Active ? "Oddaj g³os na tego gracza" : "Gracz odizolowany")">
+                            <span class="player-status-name">@currentPlayer.Name</span>
+                            <strong>@GetPlayerStatusText(currentPlayer)</strong>
+                        </button>
+                    }
+                </div>
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="game-card result-card">
+            <div class="result-icon">@(winner == Team.Healthy ? "??" : "??")</div>
+            <h2>@resultTitle</h2>
+            <p>@resultMessage</p>
+
+            <div class="revealed-roles">
+                @foreach (var player in players)
+                {
+                    <div class="revealed-player">
+                        <span>@player.Name</span>
+                        <strong class="@GetRoleClass(player.Role)">@GetRoleName(player.Role)</strong>
+                    </div>
+                }
+            </div>
+            <button class="primary-button" @onclick="ResetGame">Zagraj ponownie</button>
+        </section>
+    }
+
+    @if (phase != GamePhase.Setup)
+    {
+        <button class="new-game-button" @onclick="ResetGame">Nowa gra</button>
+    }
+</div>
+
+@code {
+    private enum GamePhase { Setup, Reveal, Playing, Finished }
+    private enum Role { HealthyDoctor, InfectedDoctor, Infector }
+    private enum Team { Healthy, Infected }
+
+    private sealed class Player
+    {
+        public string Name { get; set; } = string.Empty;
+        public Role Role { get; set; }
+        public bool Active { get; set; } = true;
+        public bool IsHuman { get; set; }
+    }
+
+    private const int StandardPlayerCount = 16;
+    private const int MaxRounds = 6;
+    private readonly List<string> playerNames = new() { "" };
+    private List<Player> players = new();
+    private GamePhase phase = GamePhase.Setup;
+    private bool soloMode = true;
+    private bool roleVisible;
+    private int revealIndex;
+    private int round = 1;
+    private string? setupError;
+    private Team winner;
+    private string resultTitle = string.Empty;
+    private string resultMessage = string.Empty;
+
+    private int ActiveCount => players.Count(player => player.Active);
+    private int HealthyCount => players.Count(player => player.Active && player.Role == Role.HealthyDoctor);
+    private int InfectedCount => players.Count(player => player.Role != Role.HealthyDoctor);
+    private int InfectionThreshold => (int)Math.Ceiling(players.Count * 0.6);
+
+    private void AddPlayer() => playerNames.Add(string.Empty);
+
+    private void ToggleSoloMode()
+    {
+        if (soloMode)
+        {
+            playerNames.RemoveRange(1, playerNames.Count - 1);
+        }
+        else
+        {
+            while (playerNames.Count < StandardPlayerCount)
+            {
+                playerNames.Add(string.Empty);
+            }
+        }
+    }
+
+    private void RemovePlayer()
+    {
+        if (playerNames.Count > 6)
+        {
+            playerNames.RemoveAt(playerNames.Count - 1);
+        }
+    }
+
+    private void StartGame()
+    {
+        if (playerNames.Any(string.IsNullOrWhiteSpace))
+        {
+            setupError = "Ka¿dy gracz musi mieæ imiê.";
+            return;
+        }
+
+        setupError = null;
+        var names = soloMode
+            ? new[]
+            {
+                playerNames[0], "Bot", "Medyk", "Nova", "Alfa", "Beta",
+                "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta",
+                "Iota", "Kappa", "Lambda", "Sigma"
+            }
+            : playerNames.ToArray();
+        var roles = new List<Role> { Role.Infector };
+        roles.AddRange(Enumerable.Repeat(Role.InfectedDoctor, names.Length >= 7 ? 2 : 1));
+        roles.AddRange(Enumerable.Repeat(Role.HealthyDoctor, names.Length - roles.Count));
+        roles = roles.OrderBy(_ => Guid.NewGuid()).ToList();
+
+        players = names.Select((name, index) => new Player
+        {
+            Name = name.Trim(),
+            Role = roles[index],
+            IsHuman = !soloMode || index == 0
+        }).ToList();
+        revealIndex = 0;
+        roleVisible = false;
+        round = 1;
+        phase = GamePhase.Reveal;
+    }
+
+    private void ShowRole() => roleVisible = true;
+
+    private void NextReveal()
+    {
+        if (soloMode)
+        {
+            phase = GamePhase.Playing;
+            return;
+        }
+
+        if (revealIndex < players.Count - 1)
+        {
+            revealIndex++;
+            roleVisible = false;
+        }
+        else
+        {
+            phase = GamePhase.Playing;
+        }
+    }
+
+    private void Vote(Player player)
+    {
+        if (phase != GamePhase.Playing || !player.Active)
+        {
+            return;
+        }
+
+        player.Active = false;
+
+        if (player.Role == Role.Infector)
+        {
+            FinishGame(Team.Healthy, "Lekarze zwyciê¿aj¹!", $"Gracze poprawnie rozpoznali Nosiciela: {player.Name}.");
+            return;
+        }
+
+        // B³êdne g³osowanie daje infekcji czas na przejêcie jednego zdrowego lekarza.
+        var infectedPlayers = players
+            .Select((item, index) => new { Player = item, Index = index })
+            .Where(item => item.Player.Active && item.Player.Role != Role.HealthyDoctor)
+            .ToList();
+        var candidate = players
+            .Select((item, index) => new { Player = item, Index = index })
+            .Where(item => item.Player.Active && item.Player.Role == Role.HealthyDoctor)
+            .Where(item => infectedPlayers.Any(infected => AreNeighbors(item.Index, infected.Index)))
+            .OrderBy(_ => Guid.NewGuid())
+            .Select(item => item.Player)
+            .FirstOrDefault();
+        if (candidate != null)
+        {
+            candidate.Role = Role.InfectedDoctor;
+        }
+
+        if (InfectedCount >= InfectionThreshold)
+        {
+            FinishGame(Team.Infected, "Infekcja zwyciê¿a!", $"Zaka¿enie objê³o co najmniej 60% graczy ({InfectedCount} z {players.Count}).");
+        }
+        else if (round >= MaxRounds)
+        {
+            FinishGame(Team.Infected, "Infekcja zwyciê¿a!", "Minê³o zbyt wiele rund, a Nosiciel nadal nie zosta³ znaleziony.");
+        }
+        else
+        {
+            round++;
+        }
+    }
+
+    private void FinishGame(Team winningTeam, string title, string message)
+    {
+        winner = winningTeam;
+        resultTitle = title;
+        resultMessage = message;
+        phase = GamePhase.Finished;
+    }
+
+    private void ResetGame()
+    {
+        players.Clear();
+        soloMode = true;
+        playerNames.Clear();
+        playerNames.Add(string.Empty);
+        phase = GamePhase.Setup;
+        roleVisible = false;
+        revealIndex = 0;
+        round = 1;
+        setupError = null;
+        winner = Team.Healthy;
+    }
+
+    private bool AreNeighbors(int firstIndex, int secondIndex)
+    {
+        var distance = Math.Abs(firstIndex - secondIndex);
+        return distance == 1 || distance == players.Count - 1;
+    }
+
+    private static string GetPlayerStatusClass(Player player)
+    {
+        if (player.Role != Role.HealthyDoctor)
+        {
+            return player.Active ? "status-infected" : "status-isolated status-infected";
+        }
+
+        return player.Active ? "status-healthy" : "status-isolated";
+    }
+
+    private static string GetPlayerStatusText(Player player)
+    {
+        if (!player.Active)
+        {
+            return "Odizolowany";
+        }
+
+        return player.Role == Role.HealthyDoctor ? "Zdrowy" : "Zainfekowany";
+    }
+
+    private string GetPlayerPositionStyle(int index)
+    {
+        var angle = 2 * Math.PI * index / players.Count - Math.PI / 2;
+        var horizontalPosition = 50 + 42 * Math.Cos(angle);
+        var verticalPosition = 50 + 40 * Math.Sin(angle);
+        return $"left:{horizontalPosition.ToString("F2", CultureInfo.InvariantCulture)}%;top:{verticalPosition.ToString("F2", CultureInfo.InvariantCulture)}%";
+    }
+
+    private static string GetRoleName(Role role) => role switch
+    {
+        Role.Infector => "Nosiciel",
+        Role.InfectedDoctor => "Zainfekowany lekarz",
+        _ => "Zdrowy lekarz"
+    };
+
+    private static string GetRoleIcon(Role role) => role switch
+    {
+        Role.Infector => "??",
+        Role.InfectedDoctor => "??",
+        _ => "??"
+    };
+
+    private static string GetRoleClass(Role role) => role switch
+    {
+        Role.Infector => "role-infector",
+        Role.InfectedDoctor => "role-infected",
+        _ => "role-healthy"
+    };
+
+    private static string GetRoleDescription(Role role) => role switch
+    {
+        Role.Infector => "Potajemnie rozprzestrzeniaj infekcjê i przetrwaj g³osowania.",
+        Role.InfectedDoctor => "Pomó¿ Nosicielowi, ale nie zdradŸ swojej to¿samoœci.",
+        _ => "Wspólnie z innymi znajdŸcie Nosiciela i uratujcie szpital."
+    };
+}

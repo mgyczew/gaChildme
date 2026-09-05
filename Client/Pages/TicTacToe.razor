@@ -1,0 +1,83 @@
+@page "/ticTacToe"
+
+<PageTitle>Kó³ko i krzy¿yk</PageTitle>
+
+<div class="tic-tac-toe">
+    <h1>? Kó³ko i krzy¿yk ?</h1>
+    <p class="status" role="status">@statusMessage</p>
+
+    <div class="board" role="grid" aria-label="Plansza do gry kó³ko i krzy¿yk">
+        @for (var index = 0; index < board.Length; index++)
+        {
+            var cellIndex = index;
+            <button class="cell @GetCellClass(board[cellIndex])"
+                    @onclick="() => Play(cellIndex)"
+                    disabled="@(board[cellIndex] != null || gameOver)"
+                    aria-label="Pole @(cellIndex + 1), @(board[cellIndex] ?? "puste")">
+                @(board[cellIndex] ?? "")
+            </button>
+        }
+    </div>
+
+    <button class="reset-button" @onclick="ResetGame">Nowa gra</button>
+</div>
+
+@code {
+    private readonly string?[] board = new string?[9];
+    private string currentPlayer = "O";
+    private bool gameOver;
+    private string statusMessage = "Ruch gracza O";
+
+    private void Play(int index)
+    {
+        if (gameOver || board[index] != null)
+        {
+            return;
+        }
+
+        board[index] = currentPlayer;
+
+        if (HasWon(currentPlayer))
+        {
+            gameOver = true;
+            statusMessage = $"Gratulacje! Wygra³ gracz {currentPlayer}";
+        }
+        else if (board.All(cell => cell != null))
+        {
+            gameOver = true;
+            statusMessage = "Remis!";
+        }
+        else
+        {
+            currentPlayer = currentPlayer == "O" ? "X" : "O";
+            statusMessage = $"Ruch gracza {currentPlayer}";
+        }
+    }
+
+    private bool HasWon(string player)
+    {
+        int[][] winningLines =
+        {
+            new[] { 0, 1, 2 }, new[] { 3, 4, 5 }, new[] { 6, 7, 8 },
+            new[] { 0, 3, 6 }, new[] { 1, 4, 7 }, new[] { 2, 5, 8 },
+            new[] { 0, 4, 8 }, new[] { 2, 4, 6 }
+        };
+
+        return winningLines.Any(line => line.All(index => board[index] == player));
+    }
+
+    private void ResetGame()
+    {
+        Array.Clear(board, 0, board.Length);
+        currentPlayer = "O";
+        gameOver = false;
+        statusMessage = "Ruch gracza O";
+    }
+
+    private static string GetCellClass(string? value) => value switch
+    {
+        "O" => "circle",
+        "X" => "cross",
+        _ => string.Empty
+    };
+}
